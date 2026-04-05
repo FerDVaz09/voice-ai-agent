@@ -9,8 +9,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Usa Node.js 24 en las GitHub Actions (evita warning de deprecación de Node 20)
     env:
+      # PYTHONPATH a nivel de job: disponible en TODOS los pasos,
+      # incluido cuando pytest carga conftest.py por primera vez
+      PYTHONPATH: ${{ github.workspace }}
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
@@ -29,15 +31,13 @@ jobs:
       - name: 🔍 Verificar entorno
         run: |
           python --version
-          python -c "import sys; print('sys.path:', sys.path)"
+          python -c "import sys; print('PYTHONPATH OK, api importable:', 'api' in str(sys.path))"
           python -c "from api.main import app; print('✅ Import api.main OK')"
           pytest --version
 
       - name: 🧪 Run tests
         run: pytest tests/ -v
         env:
-          # Las variables son opcionales en tests unitarios (el engine está mockeado)
-          # pero se inyectan desde Secrets para integración futura
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           VAPI_API_KEY: ${{ secrets.VAPI_API_KEY }}
           VAPI_PHONE_NUMBER_ID: ${{ secrets.VAPI_PHONE_NUMBER_ID }}
