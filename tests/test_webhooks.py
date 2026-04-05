@@ -3,8 +3,10 @@ Tests unitarios del webhook y endpoints de la API.
 
 El fixture `client` (definido en conftest.py) garantiza que el engine
 de PostgreSQL esté mockeado antes de que el lifespan de FastAPI se ejecute.
+
+Se usa `with patch(...)` como context manager en vez de decorador @patch
+para evitar problemas de orden de argumentos entre @patch y fixtures de pytest.
 """
-import pytest
 from unittest.mock import AsyncMock, patch
 
 
@@ -29,49 +31,49 @@ def test_root_returns_html(client):
 # ---------------------------------------------------------------------------
 # Webhook — call-started
 # ---------------------------------------------------------------------------
-@patch("api.main.save_call", new_callable=AsyncMock)
-def test_webhook_call_started(mock_save, client):
-    mock_save.return_value = "test-uuid"
-    payload = {
-        "message": {
-            "type": "call-started",
-            "call": {
-                "id": "vapi-123",
-                "type": "inbound",
-                "customer": {"number": "+18091234567"},
-            },
+def test_webhook_call_started(client):
+    with patch("api.main.save_call", new_callable=AsyncMock) as mock_save:
+        mock_save.return_value = "test-uuid"
+        payload = {
+            "message": {
+                "type": "call-started",
+                "call": {
+                    "id": "vapi-123",
+                    "type": "inbound",
+                    "customer": {"number": "+18091234567"},
+                },
+            }
         }
-    }
-    response = client.post("/webhook/vapi", json=payload)
-    assert response.status_code == 200
-    assert response.json() == {"received": True}
-    mock_save.assert_called_once()
+        response = client.post("/webhook/vapi", json=payload)
+        assert response.status_code == 200
+        assert response.json() == {"received": True}
+        mock_save.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
 # Webhook — end-of-call-report
 # ---------------------------------------------------------------------------
-@patch("api.main.update_call", new_callable=AsyncMock)
-def test_webhook_end_of_call(mock_update, client):
-    payload = {
-        "message": {
-            "type": "end-of-call-report",
-            "call": {"id": "vapi-123"},
-            "durationSeconds": 120,
-            "summary": "Patient scheduled appointment",
-            "transcript": "Sofia: Hello...",
+def test_webhook_end_of_call(client):
+    with patch("api.main.update_call", new_callable=AsyncMock) as mock_update:
+        payload = {
+            "message": {
+                "type": "end-of-call-report",
+                "call": {"id": "vapi-123"},
+                "durationSeconds": 120,
+                "summary": "Patient scheduled appointment",
+                "transcript": "Sofia: Hello...",
+            }
         }
-    }
-    response = client.post("/webhook/vapi", json=payload)
-    assert response.status_code == 200
-    assert response.json() == {"received": True}
-    mock_update.assert_called_once()
+        response = client.post("/webhook/vapi", json=payload)
+        assert response.status_code == 200
+        assert response.json() == {"received": True}
+        mock_update.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
 # Webhook — validación de firma
 # ---------------------------------------------------------------------------
-def test_webhook_invalid_secret(monkeypatch, client):
+def test_webhook_invalid_secret(client, monkeypatch):
     """Debe retornar 403 si el secret del header no coincide."""
     monkeypatch.setenv("VAPI_WEBHOOK_SECRET", "supersecret")
     payload = {"message": {"type": "call-started", "call": {"id": "x"}}}
@@ -83,24 +85,24 @@ def test_webhook_invalid_secret(monkeypatch, client):
     assert response.status_code == 403
 
 
-@patch("api.main.save_call", new_callable=AsyncMock)
-def test_webhook_valid_secret(mock_save, monkeypatch, client):
+def test_webhook_valid_secret(client, monkeypatch):
     """Debe aceptar la petición con el secret correcto."""
     monkeypatch.setenv("VAPI_WEBHOOK_SECRET", "supersecret")
-    mock_save.return_value = "uuid"
-    payload = {
-        "message": {
-            "type": "call-started",
-            "call": {
-                "id": "vapi-456",
-                "type": "inbound",
-                "customer": {"number": "+573001234567"},
-            },
+    with patch("api.main.save_call", new_callable=AsyncMock) as mock_save:
+        mock_save.return_value = "uuid"
+        payload = {
+            "message": {
+                "type": "call-started",
+                "call": {
+                    "id": "vapi-456",
+                    "type": "inbound",
+                    "customer": {"number": "+573001234567"},
+                },
+            }
         }
-    }
-    response = client.post(
-        "/webhook/vapi",
-        json=payload,
-        headers={"x-vapi-secret": "supersecret"},
-    )
-    assert response.status_code == 200
+        response = client.post(
+            "/webhook/vapi",
+            json=payload,
+            headers={"x-vapi-secret": "supersecret"},
+        )
+        assert response.status_code == 200
