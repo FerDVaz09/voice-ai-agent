@@ -1,23 +1,25 @@
-import pytest
-from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, patch, MagicMock
-from api.main import app
+"""
+Tests unitarios del webhook y endpoints de la API.
 
-client = TestClient(app)
+El fixture `client` (definido en conftest.py) garantiza que el engine
+de PostgreSQL esté mockeado antes de que el lifespan de FastAPI se ejecute.
+"""
+import pytest
+from unittest.mock import AsyncMock, patch
 
 
 # ---------------------------------------------------------------------------
 # Health & landing
 # ---------------------------------------------------------------------------
-def test_health_check():
+def test_health_check(client):
     """El endpoint /health debe retornar JSON {"status": "ok"}."""
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
-def test_root_returns_html():
-    """La landing page / debe retornar HTML con título de la app."""
+def test_root_returns_html(client):
+    """La landing page / debe retornar HTML con el nombre de la app."""
     response = client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
@@ -25,10 +27,10 @@ def test_root_returns_html():
 
 
 # ---------------------------------------------------------------------------
-# Webhook — call.started
+# Webhook — call-started
 # ---------------------------------------------------------------------------
 @patch("api.main.save_call", new_callable=AsyncMock)
-def test_webhook_call_started(mock_save):
+def test_webhook_call_started(mock_save, client):
     mock_save.return_value = "test-uuid"
     payload = {
         "message": {
@@ -50,7 +52,7 @@ def test_webhook_call_started(mock_save):
 # Webhook — end-of-call-report
 # ---------------------------------------------------------------------------
 @patch("api.main.update_call", new_callable=AsyncMock)
-def test_webhook_end_of_call(mock_update):
+def test_webhook_end_of_call(mock_update, client):
     payload = {
         "message": {
             "type": "end-of-call-report",
@@ -67,11 +69,11 @@ def test_webhook_end_of_call(mock_update):
 
 
 # ---------------------------------------------------------------------------
-# Webhook — firma inválida
+# Webhook — validación de firma
 # ---------------------------------------------------------------------------
-@patch.dict("os.environ", {"VAPI_WEBHOOK_SECRET": "supersecret"})
-def test_webhook_invalid_secret():
-    """Debe retornar 403 si el secret no coincide."""
+def test_webhook_invalid_secret(monkeypatch, client):
+    """Debe retornar 403 si el secret del header no coincide."""
+    monkeypatch.setenv("VAPI_WEBHOOK_SECRET", "supersecret")
     payload = {"message": {"type": "call-started", "call": {"id": "x"}}}
     response = client.post(
         "/webhook/vapi",
@@ -81,10 +83,10 @@ def test_webhook_invalid_secret():
     assert response.status_code == 403
 
 
-@patch.dict("os.environ", {"VAPI_WEBHOOK_SECRET": "supersecret"})
 @patch("api.main.save_call", new_callable=AsyncMock)
-def test_webhook_valid_secret(mock_save):
-    """Debe pasar con el secret correcto."""
+def test_webhook_valid_secret(mock_save, monkeypatch, client):
+    """Debe aceptar la petición con el secret correcto."""
+    monkeypatch.setenv("VAPI_WEBHOOK_SECRET", "supersecret")
     mock_save.return_value = "uuid"
     payload = {
         "message": {

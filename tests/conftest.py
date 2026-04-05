@@ -2,15 +2,18 @@
 Configuración global de pytest.
 
 El lifespan de la app intenta conectarse a PostgreSQL al arrancar.
-Este conftest mockea el engine para que los tests unitarios no requieran
-una base de datos real.
+Este conftest mockea el engine y provee un fixture de cliente HTTP
+que garantiza el mock se aplica ANTES de que el lifespan se ejecute.
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock
+from fastapi.testclient import TestClient
+
+from api.main import app
 
 
 class _AsyncContextManager:
-    """Context manager async genérico para mockear engine.begin()."""
+    """Context manager async reutilizable para mockear engine.begin()."""
 
     def __init__(self):
         self.conn = AsyncMock()
@@ -23,15 +26,20 @@ class _AsyncContextManager:
         return False
 
 
-@pytest.fixture(autouse=True)
-def mock_db_engine(monkeypatch):
+@pytest.fixture
+def client(monkeypatch):
     """
-    Reemplaza el engine de SQLAlchemy en api.main por un mock.
-    Esto evita que el lifespan intente abrir una conexión a PostgreSQL
-    durante los tests, haciendo la suite ejecutable sin base de datos.
+    Crea un TestClient con el engine de BD mockeado.
+
+    Orden garantizado:
+    1. monkeypatch reemplaza api.main.engine con el mock
+    2. TestClient inicia (triggerea el lifespan → usa el mock, no Postgres)
+    3. Test corre
+    4. TestClient cierra el lifespan al salir del with-block
     """
     mock_engine = MagicMock()
     mock_engine.begin.return_value = _AsyncContextManager()
-
     monkeypatch.setattr("api.main.engine", mock_engine)
-    return mock_engine
+
+    with TestClient(app) as c:
+        yield c
