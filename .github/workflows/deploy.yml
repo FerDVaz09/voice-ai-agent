@@ -26,6 +26,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: 🔍 Verificar entorno
+        run: |
+          python --version
+          python -c "import sys; print('sys.path:', sys.path)"
+          python -c "from api.main import app; print('✅ Import api.main OK')"
+          pytest --version
+
       - name: 🧪 Run tests
         run: pytest tests/ -v
         env:
